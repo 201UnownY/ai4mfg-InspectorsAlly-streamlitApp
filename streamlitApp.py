@@ -3,7 +3,7 @@ import io
 import numpy as np
 import os
 from PIL import Image
-import tensorflow as tf # Import TensorFlow for Teachable Machine model
+from tensorflow import keras # Import TensorFlow for Teachable Machine model
 
 # Disable scientific notation for clarity
 np.set_printoptions(suppress=True)
@@ -81,7 +81,7 @@ CLASS_NAMES = ["Anomaly", "Good"] # Adjust based on your Teachable Machine outpu
 def load_teachable_machine_model():
     """Loads the Teachable Machine Keras H5 model."""
     try:
-        model = tf.keras.models.load_model("./keras_model.h5", compile=False)
+        model = keras.models.load_model("./keras_model.h5", compile=False)
         return model
     except Exception as e:
         st.error(f"Error loading Teachable Machine model: {e}")
