@@ -2,7 +2,9 @@ import streamlit as st
 import numpy as np
 import os
 from PIL import Image
-import tensorflow as tf # Keep tensorflow, but we'll use tf.lite
+# We no longer need 'import tensorflow as tf' for the full package
+# Instead, we import the specific Interpreter from tflite_runtime
+from tflite_runtime.interpreter import Interpreter
 
 # Disable scientific notation for clarity
 np.set_printoptions(suppress=True)
@@ -22,8 +24,12 @@ st.write(
 
 with st.sidebar:
     # Ensure this path is correct for your deployed app
-    img = Image.open("./docs/overview_dataset.jpg")
-    st.image(img)
+    # Make sure 'docs/overview_dataset.jpg' exists in your GitHub repo
+    try:
+        img = Image.open("./docs/overview_dataset.jpg")
+        st.image(img)
+    except FileNotFoundError:
+        st.warning("Sidebar image not found. Please ensure './docs/overview_dataset.jpg' exists.")
     st.subheader("About InspectorsAlly")
     st.write(
         "InspectorsAlly is a powerful AI-powered application designed to help businesses streamline their quality control inspections for bottles. With InspectorsAlly, companies can ensure that their bottle products meet the highest standards of quality, while reducing inspection time and increasing efficiency."
@@ -38,7 +44,7 @@ def load_uploaded_image(file):
     img = Image.open(file)
     return img
 
-# Set up the sidebar
+# Set up the sidebar for input method selection
 st.subheader("Select Image Input Method")
 input_method = st.radio(
     "options", ["File Uploader", "Camera Input"], label_visibility="collapsed"
@@ -70,8 +76,9 @@ elif input_method == "Camera Input":
 
 # --- Teachable Machine TFLite Model Integration ---
 # Paths to your Teachable Machine TFLite model and labels
-TFLITE_MODEL_PATH = "./model_unquant.tflite" # Update this path!
-LABELS_PATH = "./labels.txt"     # Update this path!
+# IMPORTANT: Ensure 'tm_model/' directory and these files exist in your GitHub repo
+TFLITE_MODEL_PATH = "./tm_model/model.tflite"
+LABELS_PATH = "./tm_model/labels.txt"
 
 CLASS_NAMES = []
 try:
@@ -85,17 +92,20 @@ except Exception as e:
     st.error(f"Error reading labels file: {e}")
     st.stop()
 
+
 @st.cache_resource
 def load_tflite_model_and_interpreter():
     """Loads the TensorFlow Lite model and initializes interpreter."""
     try:
-        interpreter = tf.lite.Interpreter(model_path=TFLITE_MODEL_PATH)
+        # Use the Interpreter class from tflite_runtime
+        interpreter = Interpreter(model_path=TFLITE_MODEL_PATH)
         interpreter.allocate_tensors()
         return interpreter
     except Exception as e:
         st.error(f"Error loading TensorFlow Lite model: {e}")
         st.stop()
 
+# Load the model interpreter when the app starts
 tflite_interpreter = load_tflite_model_and_interpreter()
 
 def preprocess_image_for_teachable_machine_tflite(image_pil):
@@ -114,11 +124,11 @@ def preprocess_image_for_teachable_machine_tflite(image_pil):
     image_array = np.asarray(image)
 
     # Normalize the image based on the expected input type
+    # Teachable Machine's Float32 models typically expect normalization to [-1, 1]
+    # by (value / 127.5) - 1. For uint8, it expects 0-255 directly.
     if input_dtype == np.float32:
-        # Teachable Machine's float32 models expect normalization to [-1, 1]
-        normalized_image_array = (image_array.astype(np.float32) / 127.5) - 1 # Corrected normalization if Teachable Machine uses 127.5
+        normalized_image_array = (image_array.astype(np.float32) / 127.5) - 1
     elif input_dtype == np.uint8:
-        # For quantized models, they often expect uint8 (0-255) directly
         normalized_image_array = image_array.astype(np.uint8)
     else:
         st.error(f"Unsupported input dtype for TFLite model: {input_dtype}")
@@ -152,8 +162,9 @@ def Anomaly_Detection_TeachableMachine_TFLite(image_pil):
     output_data = tflite_interpreter.get_tensor(output_details[0]['index'])
     prediction = output_data[0] # Get the predictions for the first (and only) image in the batch
 
-    # If the model is quantized, the output might be integers and need dequantization
-    # For Float32 models, output is usually probabilities directly.
+    # If the model is quantized (uint8 output), we might need to dequantize
+    # However, for Float32 models, output is usually probabilities directly.
+    # The if condition below handles potential quantization dequantization if needed
     if output_details[0]['dtype'] == np.uint8:
         scale, zero_point = output_details[0]['quantization']
         prediction = (prediction.astype(np.float32) - zero_point) * scale
@@ -165,7 +176,7 @@ def Anomaly_Detection_TeachableMachine_TFLite(image_pil):
     prediction_sentence = ""
     if predicted_class == "Good":
         prediction_sentence = f"Congratulations! Your bottle product has been classified as a **'Good'** item with no anomalies detected in the inspection images. (Confidence: {confidence_score:.2f})"
-    else: # Assuming "Anomaly" is the other class
+    else: # Assuming "Anomaly" is the other class based on your CLASS_NAMES example
         prediction_sentence = f"We're sorry to inform you that our AI-based visual inspection system has detected an **anomaly** in your bottle product. (Confidence: {confidence_score:.2f})"
 
     return prediction_sentence
