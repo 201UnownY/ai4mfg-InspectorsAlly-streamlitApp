@@ -70,8 +70,8 @@ elif input_method == "Camera Input":
 
 # --- Teachable Machine TFLite Model Integration ---
 # Paths to your Teachable Machine TFLite model and labels
-TFLITE_MODEL_PATH = "./tm_model/model.tflite" # Update this path!
-LABELS_PATH = "./tm_model/labels.txt"     # Update this path!
+TFLITE_MODEL_PATH = "./model_unquant.tflite" # Update this path!
+LABELS_PATH = "./labels.txt"     # Update this path!
 
 CLASS_NAMES = []
 try:
