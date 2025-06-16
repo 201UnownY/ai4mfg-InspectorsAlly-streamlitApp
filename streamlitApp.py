@@ -77,8 +77,8 @@ elif input_method == "Camera Input":
 # --- Teachable Machine TFLite Model Integration ---
 # Paths to your Teachable Machine TFLite model and labels
 # IMPORTANT: Ensure 'tm_model/' directory and these files exist in your GitHub repo
-TFLITE_MODEL_PATH = "./tm_model/model.tflite"
-LABELS_PATH = "./tm_model/labels.txt"
+TFLITE_MODEL_PATH = "./model_unquant.tflite"
+LABELS_PATH = "./labels.txt"
 
 CLASS_NAMES = []
 try:
