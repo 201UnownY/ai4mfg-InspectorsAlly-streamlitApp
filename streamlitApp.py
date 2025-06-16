@@ -1,10 +1,9 @@
 import streamlit as st
+import io
 import numpy as np
 import os
 from PIL import Image
-# We no longer need 'import tensorflow as tf' for the full package
-# Instead, we import the specific Interpreter from tflite_runtime
-from tflite_runtime.interpreter import Interpreter
+import tensorflow as tf # <--- Import full TensorFlow for Keras model
 
 # Disable scientific notation for clarity
 np.set_printoptions(suppress=True)
@@ -23,13 +22,14 @@ st.write(
 )
 
 with st.sidebar:
-    # Ensure this path is correct for your deployed app
-    # Make sure 'docs/overview_dataset.jpg' exists in your GitHub repo
     try:
+        # Assuming you have a relevant image for bottles here
+        # Make sure this path './docs/overview_dataset.jpg' is correct relative to your script
         img = Image.open("./docs/overview_dataset.jpg")
         st.image(img)
     except FileNotFoundError:
-        st.warning("Sidebar image not found. Please ensure './docs/overview_dataset.jpg' exists.")
+        st.warning("Sidebar image not found at './docs/overview_dataset.jpg'. Please ensure it exists.")
+
     st.subheader("About InspectorsAlly")
     st.write(
         "InspectorsAlly is a powerful AI-powered application designed to help businesses streamline their quality control inspections for bottles. With InspectorsAlly, companies can ensure that their bottle products meet the highest standards of quality, while reducing inspection time and increasing efficiency."
@@ -74,16 +74,16 @@ elif input_method == "Camera Input":
     else:
         st.warning("Please click an image.")
 
-# --- Teachable Machine TFLite Model Integration ---
-# Paths to your Teachable Machine TFLite model and labels
-# IMPORTANT: Ensure 'tm_model/' directory and these files exist in your GitHub repo
-TFLITE_MODEL_PATH = "./model_unquant.tflite"
-LABELS_PATH = "./labels.txt"
+# --- Teachable Machine Keras Model Integration ---
+# Path to your Teachable Machine Keras H5 model
+MODEL_PATH = "./keras_model.h5" # <--- Confirm this path
+LABELS_PATH = "./labels.txt" # <--- Path to your labels file
 
+# This section now reads CLASS_NAMES from labels.txt
 CLASS_NAMES = []
 try:
     with open(LABELS_PATH, "r") as f:
-        # Labels.txt typically has "0 Anomaly", "1 Good". We want just "Anomaly", "Good"
+        # This line assumes labels.txt format is "0 ClassName", "1 OtherClassName"
         CLASS_NAMES = [line.strip().split(" ", 1)[1] for line in f.readlines()]
 except FileNotFoundError:
     st.error(f"Labels file not found at {LABELS_PATH}. Please ensure it's in your repository.")
@@ -92,96 +92,62 @@ except Exception as e:
     st.error(f"Error reading labels file: {e}")
     st.stop()
 
-
 @st.cache_resource
-def load_tflite_model_and_interpreter():
-    """Loads the TensorFlow Lite model and initializes interpreter."""
+def load_teachable_machine_model():
+    """Loads the Teachable Machine Keras H5 model."""
     try:
-        # Use the Interpreter class from tflite_runtime
-        interpreter = Interpreter(model_path=TFLITE_MODEL_PATH)
-        interpreter.allocate_tensors()
-        return interpreter
+        # Load the Keras model using TensorFlow's Keras API
+        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+        return model
     except Exception as e:
-        st.error(f"Error loading TensorFlow Lite model: {e}")
+        st.error(f"Error loading Teachable Machine Keras model: {e}")
         st.stop()
 
-# Load the model interpreter when the app starts
-tflite_interpreter = load_tflite_model_and_interpreter()
+# Load the Keras model when the app starts
+model = load_teachable_machine_model()
 
-def preprocess_image_for_teachable_machine_tflite(image_pil):
+def preprocess_image_for_teachable_machine(image_pil):
     """
-    Preprocesses a PIL image for a Teachable Machine TFLite model.
-    It handles resizing to the model's expected input shape and normalization.
+    Preprocesses a PIL image for a Teachable Machine model.
+    Teachable Machine Keras models typically expect images scaled to 224x224 and normalized to [-1, 1].
     """
-    # Get input details from the interpreter to determine expected shape and type
-    input_details = tflite_interpreter.get_input_details()
-    input_shape = input_details[0]['shape'] # e.g., [1, 224, 224, 3]
-    input_height, input_width = input_shape[1], input_shape[2]
-    input_dtype = input_details[0]['dtype']
-
-    # Resize the image
-    image = image_pil.resize((input_width, input_height))
+    data = np.ndarray(shape=(1, 224, 224, 3), dtype=np.float32)
+    image = image_pil.resize((224, 224))
     image_array = np.asarray(image)
-
-    # Normalize the image based on the expected input type
-    # Teachable Machine's Float32 models typically expect normalization to [-1, 1]
-    # by (value / 127.5) - 1. For uint8, it expects 0-255 directly.
-    if input_dtype == np.float32:
-        normalized_image_array = (image_array.astype(np.float32) / 127.5) - 1
-    elif input_dtype == np.uint8:
-        normalized_image_array = image_array.astype(np.uint8)
-    else:
-        st.error(f"Unsupported input dtype for TFLite model: {input_dtype}")
-        st.stop()
-
-    # Add batch dimension (e.g., from [224, 224, 3] to [1, 224, 224, 3])
-    input_data = np.expand_dims(normalized_image_array, axis=0)
-    return input_data
+    # Normalize to [-1, 1] as per Teachable Machine Keras export
+    normalized_image_array = (image_array.astype(np.float32) / 127.0) - 1
+    data[0] = normalized_image_array
+    return data
 
 
-def Anomaly_Detection_TeachableMachine_TFLite(image_pil):
+def Anomaly_Detection_TeachableMachine(image_pil):
     """
-    Given a PIL image and a loaded TFLite interpreter, returns the predicted class.
+    Given a PIL image and a loaded Teachable Machine model, returns the predicted class.
     """
-    if tflite_interpreter is None:
-        return "Model interpreter not loaded. Please check the model path."
-
-    input_details = tflite_interpreter.get_input_details()
-    output_details = tflite_interpreter.get_output_details()
+    if model is None:
+        return "Model not loaded. Please check the model path."
 
     # Preprocess the image
-    processed_image = preprocess_image_for_teachable_machine_tflite(image_pil)
-
-    # Set the tensor
-    tflite_interpreter.set_tensor(input_details[0]['index'], processed_image)
-
-    # Run inference
-    tflite_interpreter.invoke()
-
-    # Get the output tensor
-    output_data = tflite_interpreter.get_tensor(output_details[0]['index'])
-    prediction = output_data[0] # Get the predictions for the first (and only) image in the batch
-
-    # If the model is quantized (uint8 output), we might need to dequantize
-    # However, for Float32 models, output is usually probabilities directly.
-    # The if condition below handles potential quantization dequantization if needed
-    if output_details[0]['dtype'] == np.uint8:
-        scale, zero_point = output_details[0]['quantization']
-        prediction = (prediction.astype(np.float32) - zero_point) * scale
-
-    predicted_class_index = np.argmax(prediction)
+    processed_image = preprocess_image_for_teachable_machine(image_pil)
+    
+    # Get the model's predictions
+    prediction = model.predict(processed_image)    
+    predicted_class_index = np.argmax(prediction[0])
     predicted_class = CLASS_NAMES[predicted_class_index]
-    confidence_score = prediction[predicted_class_index]
+    confidence_score = prediction[0][predicted_class_index]
 
-    prediction_sentence = ""
+    message = ""
+    # This is the critical IF/ELSE block to determine the output message
     if predicted_class == "Good":
-        prediction_sentence = f"Congratulations! Your bottle product has been classified as a **'Good'** item with no anomalies detected in the inspection images. (Confidence: {confidence_score:.2f})"
-    else: # Assuming "Anomaly" is the other class based on your CLASS_NAMES example
-        prediction_sentence = f"We're sorry to inform you that our AI-based visual inspection system has detected an **anomaly** in your bottle product. (Confidence: {confidence_score:.2f})"
+        message = f"Congratulations! Your bottle product has been classified as a **'Good'** item with no anomalies detected in the inspection images. (Confidence: {confidence_score:.2f})"
+        st.success(message)
+    else: # Assuming "Anomaly" is the other class
+        message = f"We're sorry to inform you that our AI-based visual inspection system has detected an **anomaly** in your bottle product. (Confidence: {confidence_score:.2f})"
+        st.warning(message)
 
-    return prediction_sentence
+    return
 
-# --- End Teachable Machine TFLite Model Integration ---
+# --- End Teachable Machine Keras Model Integration ---
 
 submit = st.button(label="Submit a Bottle Product Image")
 if submit:
@@ -196,5 +162,4 @@ if submit:
 
     if img_to_predict is not None:
         with st.spinner(text="Analyzing image for anomalies..."):
-            prediction = Anomaly_Detection_TeachableMachine_TFLite(img_to_predict)
-            st.write(prediction)
+            prediction = Anomaly_Detection_TeachableMachine(img_to_predict)
