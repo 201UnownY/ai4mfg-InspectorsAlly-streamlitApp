@@ -1,4 +1,4 @@
 streamlit==1.22.0
-tflite_runtimepillow
+tflite_runtime
 pillow
 numpy
